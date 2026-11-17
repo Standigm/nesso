@@ -352,10 +352,12 @@ class Attention(nn.Module):
 
         if use_kernel_path:
             scale = 1.0 / math.sqrt(self.c_hidden)
+            # Copy the transposed q/k/v here, where torch.compile can fuse the copies;
+            # inside the compile-disabled kernel call they run as slow strided copies.
             o = kernel_triangular_attn(
-                q,
-                k,
-                v,
+                q.contiguous(),
+                k.contiguous(),
+                v.contiguous(),
                 tri_bias=tri_bias,
                 mask=mask.bool(),
                 scale=scale,
