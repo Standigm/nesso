@@ -437,9 +437,11 @@ def cli() -> None:
 )
 @click.option(
     "--fast_trunk",
-    is_flag=True,
-    help="Run the trunk in bfloat16 and compile it (faster on bandwidth-limited GPUs; "
-    "affinities shift slightly).",
+    type=click.Choice(["off", "compile", "bf16"]),
+    default="off",
+    help="Speed up the trunk: 'compile' compiles its layers; 'bf16' also carries the "
+    "pair representation in bfloat16, which is faster again but narrows the spread of "
+    "predicted affinities.",
 )
 @click.option(
     "--seed",
@@ -467,7 +469,7 @@ def predict(
     refine_protein_tokens_budget: int,
     affinity_protein_cutoff: float,
     no_kernels: bool,
-    fast_trunk: bool,
+    fast_trunk: str,
     seed: int,
 ) -> None:
     """Run predictions using Nesso."""
@@ -607,8 +609,8 @@ def predict(
     # 6. Apply no_kernels if requested
     if no_kernels:
         model_module.use_kernels = False
-    if fast_trunk:
-        model_module.enable_fast_trunk()
+    if fast_trunk != "off":
+        model_module.enable_fast_trunk(bf16=fast_trunk == "bf16")
 
     model_module.predict_args.update(
         {

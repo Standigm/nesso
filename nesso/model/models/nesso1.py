@@ -115,13 +115,21 @@ class Nesso1(LightningModule):
                 **(affinity_model_args2 or affinity_model_args or {}),
             )
 
-    def enable_fast_trunk(self) -> None:
-        """Run the trunk Pairformer in bfloat16 and compile its layers.
+    def enable_fast_trunk(self, bf16: bool = False) -> None:
+        """Compile the trunk Pairformer's layers, for faster inference.
 
-        This speeds up GPUs whose memory bandwidth limits the trunk (about 1.5x on
-        an A2, up to 1.2x on an A100). It shifts predicted affinities by about as
-        much as a change of GPU model does. The first prediction pays the compile
-        time.
+        Compiling fuses the elementwise work between the cuEquivariance kernels. It
+        keeps the pair representation in float32, and predicted affinities then move
+        no more than they move between GPU models. The first prediction pays the
+        compile time.
+
+        Parameters
+        ----------
+        bf16 : bool, default False
+            Also carry the pair representation in bfloat16. On a bandwidth-limited
+            GPU this roughly doubles the speedup, and it narrows the spread of
+            predicted affinities by a few percent, so ligands rank slightly
+            differently. Leave it off unless throughput matters more than that.
 
         Raises
         ------
@@ -131,7 +139,7 @@ class Nesso1(LightningModule):
         """
         if not self.use_kernels:
             raise ValueError("The fast trunk needs the cuEquivariance kernels")
-        self.bf16_trunk = True
+        self.bf16_trunk = bf16
         for layer in self.pairformer_module.layers:
             layer.compile(dynamic=True)
 
