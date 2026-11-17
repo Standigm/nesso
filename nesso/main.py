@@ -436,6 +436,12 @@ def cli() -> None:
     help="Whether to disable cuEquivariance kernels.",
 )
 @click.option(
+    "--fast_trunk",
+    is_flag=True,
+    help="Run the trunk in bfloat16 and compile it (faster on bandwidth-limited GPUs; "
+    "affinities shift slightly).",
+)
+@click.option(
     "--seed",
     type=int,
     default=42,
@@ -461,6 +467,7 @@ def predict(
     refine_protein_tokens_budget: int,
     affinity_protein_cutoff: float,
     no_kernels: bool,
+    fast_trunk: bool,
     seed: int,
 ) -> None:
     """Run predictions using Nesso."""
@@ -600,6 +607,8 @@ def predict(
     # 6. Apply no_kernels if requested
     if no_kernels:
         model_module.use_kernels = False
+    if fast_trunk:
+        model_module.enable_fast_trunk()
 
     model_module.predict_args.update(
         {

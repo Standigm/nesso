@@ -1,5 +1,6 @@
 """Nesso1: fast binding affinity model — inference only."""
 
+import contextlib
 import gc
 import json
 from pathlib import Path
@@ -97,6 +98,7 @@ class Nesso1(LightningModule):
         self.pairformer_module = PairformerNoSeqModule(
             token_z=token_z, **pairformer_model_args
         )
+        self.bf16_trunk = False
 
         # Distogram head (kept for pocket masks and entropy; no loss at inference)
         self.num_dist_bins = num_dist_bins
@@ -112,6 +114,26 @@ class Nesso1(LightningModule):
                 token_z=token_z,
                 **(affinity_model_args2 or affinity_model_args or {}),
             )
+
+    def enable_fast_trunk(self) -> None:
+        """Run the trunk Pairformer in bfloat16 and compile its layers.
+
+        This speeds up GPUs whose memory bandwidth limits the trunk (about 1.5x on
+        an A2, up to 1.2x on an A100). It shifts predicted affinities by about as
+        much as a change of GPU model does. The first prediction pays the compile
+        time.
+
+        Raises
+        ------
+        ValueError
+            If the cuEquivariance kernels are off: the compiled PyTorch fallback
+            fails on dynamic shapes.
+        """
+        if not self.use_kernels:
+            raise ValueError("The fast trunk needs the cuEquivariance kernels")
+        self.bf16_trunk = True
+        for layer in self.pairformer_module.layers:
+            layer.compile(dynamic=True)
 
     def get_pocket_mask(
         self, z_exp: Tensor, feats: dict[str, Any], cutoff: float = 15.0
@@ -228,9 +250,17 @@ class Nesso1(LightningModule):
                 pair_mask=pair_mask,
                 use_kernels=self.use_kernels,
             )
-            z = self.pairformer_module(
-                z, pair_mask=pair_mask, use_kernels=self.use_kernels
-            )
+            # The bfloat16 trunk needs bf16 autocast, whatever precision the caller uses.
+            with (
+                torch.autocast("cuda", dtype=torch.bfloat16)
+                if self.bf16_trunk
+                else contextlib.nullcontext()
+            ):
+                z = self.pairformer_module(
+                    z.bfloat16() if self.bf16_trunk else z,
+                    pair_mask=pair_mask,
+                    use_kernels=self.use_kernels,
+                ).float()
 
             if refine_pocket and i == 0:
                 keep_t, pdistogram_full = self.pocket_crop(z, feats=feats)
