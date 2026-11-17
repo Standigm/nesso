@@ -55,30 +55,44 @@ class PairformerNoSeqLayer(nn.Module):
         use_kernels: bool = False,
     ) -> Tensor:
         # Compute pairwise stack
-        dropout = get_dropout_mask(self.dropout, z, self.training)
-        z = z + dropout * self.tri_mul_out(z, mask=pair_mask, use_kernels=use_kernels)
-
-        dropout = get_dropout_mask(self.dropout, z, self.training)
-        z = z + dropout * self.tri_mul_in(z, mask=pair_mask, use_kernels=use_kernels)
-
-        dropout = get_dropout_mask(self.dropout, z, self.training)
-        z = z + dropout * self.tri_att_start(
-            z,
-            mask=pair_mask,
-            chunk_size=chunk_size_tri_attn,
-            use_kernels=use_kernels,
+        z = self._add_dropped(
+            z, self.tri_mul_out(z, mask=pair_mask, use_kernels=use_kernels)
         )
-
-        dropout = get_dropout_mask(self.dropout, z, self.training, columnwise=True)
-        z = z + dropout * self.tri_att_end(
+        z = self._add_dropped(
+            z, self.tri_mul_in(z, mask=pair_mask, use_kernels=use_kernels)
+        )
+        z = self._add_dropped(
             z,
-            mask=pair_mask,
-            chunk_size=chunk_size_tri_attn,
-            use_kernels=use_kernels,
+            self.tri_att_start(
+                z,
+                mask=pair_mask,
+                chunk_size=chunk_size_tri_attn,
+                use_kernels=use_kernels,
+            ),
+        )
+        z = self._add_dropped(
+            z,
+            self.tri_att_end(
+                z,
+                mask=pair_mask,
+                chunk_size=chunk_size_tri_attn,
+                use_kernels=use_kernels,
+            ),
+            columnwise=True,
         )
 
         z = z + self.transition_z(z)
         return z
+
+    def _add_dropped(
+        self, z: Tensor, update: Tensor, columnwise: bool = False
+    ) -> Tensor:
+        # The eval mask is all ones; skipping its full-size multiply is exact.
+        if not self.training:
+            return z + update
+        return (
+            z + get_dropout_mask(self.dropout, z, True, columnwise=columnwise) * update
+        )
 
 
 class PairformerNoSeqModule(nn.Module):
