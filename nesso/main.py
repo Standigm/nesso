@@ -438,10 +438,11 @@ def cli() -> None:
 @click.option(
     "--fast_trunk",
     type=click.Choice(["off", "compile", "bf16"]),
-    default="off",
-    help="Speed up the trunk: 'compile' compiles its layers; 'bf16' also carries the "
-    "pair representation in bfloat16, which is faster again but narrows the spread of "
-    "predicted affinities.",
+    default="compile",
+    help="Speed up the trunk: 'compile' (default) compiles its layers, and is skipped "
+    "without the cuEquivariance kernels; 'bf16' also carries the pair representation "
+    "in bfloat16, which is faster again but narrows the spread of predicted "
+    "affinities; 'off' runs the uncompiled model.",
 )
 @click.option(
     "--seed",
@@ -609,6 +610,8 @@ def predict(
     # 6. Apply no_kernels if requested
     if no_kernels:
         model_module.use_kernels = False
+    if fast_trunk == "compile" and not model_module.kernels_active:
+        fast_trunk = "off"  # the default level steps aside; 'bf16' still raises
     if fast_trunk != "off":
         model_module.enable_fast_trunk(bf16=fast_trunk == "bf16")
 

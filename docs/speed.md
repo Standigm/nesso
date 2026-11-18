@@ -1,10 +1,11 @@
 # Inference speed
 
-`--fast_trunk` has two levels on top of the default (`off`):
+`nesso predict` compiles the trunk by default; `--fast_trunk` picks the level:
 
-- `compile` compiles each trunk Pairformer layer with `torch.compile`, which fuses the
-  elementwise work between the cuEquivariance kernels.
-- `bf16` also carries the pair representation through the trunk in bfloat16.
+- `compile` (default) compiles each trunk Pairformer layer with `torch.compile`, which fuses
+  the elementwise work between the cuEquivariance kernels. It is skipped when the kernels are off.
+- `bf16` also carries the pair representation through the trunk in bfloat16. It is opt-in.
+- `off` runs the uncompiled model.
 
 This page gives their speed, and what each does to the predictions, measured on an
 A2 (15 GB, sm_86) and an A100-PCIE-40GB running the same software (PyTorch 2.14 + CUDA 13,
@@ -28,8 +29,9 @@ shared the A2 whenever it was repeated, which inflates every level.
 
 Most of the trunk's time is elementwise traffic on the pair representation, so the gain
 follows memory bandwidth: the A2 has about an eighth of the A100's. Compiling adds 15–25 s
-to the first prediction. Point `TORCHINDUCTOR_CACHE_DIR` at persistent storage so later
-processes reuse the compiled kernels.
+to the first prediction, which the faster predictions repay after about 6–10 of them on an A2
+and 50–120 on an A100; for a single prediction on an A100, pass `--fast_trunk off`. Point
+`TORCHINDUCTOR_CACHE_DIR` at persistent storage so later processes reuse the compiled kernels.
 
 ## What changes in the predictions
 
@@ -97,8 +99,9 @@ Reading the tables:
   The absolute noise is similar on both proteins (median |Δ| 0.020–0.027), so it is large against
   Protein A's narrow spread of predictions (0.25) and small against Protein B's (0.88).
 
-Use `compile` by default. Use `bf16` when throughput matters more than resolving ligands whose
-predicted affinities lie close together.
+`compile` is the default. Use `bf16` when throughput matters more than resolving ligands whose
+predicted affinities lie close together. `--fast_trunk off` reproduces values from before this
+page's changes bit for bit; with `compile` they move as the tables above show.
 
 ## Reproducibility
 

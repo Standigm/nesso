@@ -23,6 +23,7 @@ from nesso.model.inference.distogram import (
 from nesso.model.modules.affinity import AffinityModule
 from nesso.model.modules.encoders import RelativePositionEncoder
 from nesso.model.layers.pairformer import PairformerNoSeqModule
+from nesso.model.layers.triangular_mult import _CUEQUIVARIANCE_AVAILABLE
 from nesso.model.modules.esm_module import ESMModule
 from nesso.model.modules.trunk import InputEmbedder
 
@@ -115,13 +116,18 @@ class Nesso1(LightningModule):
                 **(affinity_model_args2 or affinity_model_args or {}),
             )
 
+    @property
+    def kernels_active(self) -> bool:
+        """Whether the cuEquivariance kernels are switched on and installed."""
+        return self.use_kernels and _CUEQUIVARIANCE_AVAILABLE
+
     def enable_fast_trunk(self, bf16: bool = False) -> None:
         """Compile the trunk Pairformer's layers, for faster inference.
 
-        Compiling fuses the elementwise work between the cuEquivariance kernels. It
-        keeps the pair representation in float32, and predicted affinities then move
-        no more than they move between GPU models. The first prediction pays the
-        compile time.
+        ``nesso predict`` does this by default. Compiling fuses the elementwise work
+        between the cuEquivariance kernels. It keeps the pair representation in
+        float32, and predicted affinities then move no more than they move between
+        GPU models. The first prediction pays the compile time.
 
         Parameters
         ----------
@@ -134,10 +140,10 @@ class Nesso1(LightningModule):
         Raises
         ------
         ValueError
-            If the cuEquivariance kernels are off: the compiled PyTorch fallback
-            fails on dynamic shapes.
+            If the cuEquivariance kernels are off or not installed: the compiled
+            PyTorch fallback fails on dynamic shapes.
         """
-        if not self.use_kernels:
+        if not self.kernels_active:
             raise ValueError("The fast trunk needs the cuEquivariance kernels")
         self.bf16_trunk = bf16
         for layer in self.pairformer_module.layers:

@@ -6,6 +6,7 @@ import hashlib
 import textwrap
 from pathlib import Path
 
+import pytest
 import torch
 from safetensors.torch import save_file
 
@@ -99,3 +100,20 @@ def test_forward_smoke(tmp_path: Path, ccd_pkl_path: Path) -> None:
     out = model.forward(batch, recycling_steps=0)
     assert "pdistogram" in out
     assert "affinity_pred_value" in out
+
+
+def test_fast_trunk_needs_kernels() -> None:
+    model = Nesso1(
+        atom_s=16,
+        atom_z=16,
+        token_s=32,
+        token_z=32,
+        atom_feature_dim=387,
+        embedder_args={"atom_encoder_depth": 1, "atom_encoder_heads": 2},
+        pairformer_model_args={"num_blocks": 1},
+        esm_module_args={"esm_embed_dim": 1280},
+        use_kernels=False,
+    )
+    assert not model.kernels_active
+    with pytest.raises(ValueError, match="cuEquivariance"):
+        model.enable_fast_trunk()
