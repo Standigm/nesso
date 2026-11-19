@@ -117,3 +117,21 @@ def test_fast_trunk_needs_kernels() -> None:
     assert not model.kernels_active
     with pytest.raises(ValueError, match="cuEquivariance"):
         model.enable_fast_trunk()
+
+
+def test_bf16_trunk_without_kernels_is_a_usage_error(tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from nesso.main import cli
+
+    yaml_path = tmp_path / "example.yaml"
+    yaml_path.write_text(_GOOD_YAML)
+    out_dir = tmp_path / "out"
+    result = CliRunner().invoke(
+        cli,
+        ["predict", str(yaml_path), "--out_dir", str(out_dir)]
+        + ["--fast_trunk", "bf16", "--no_kernels"],
+    )
+    assert result.exit_code == 2, result.output
+    assert "needs the cuEquivariance kernels" in result.output
+    assert not out_dir.exists()

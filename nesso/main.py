@@ -25,6 +25,7 @@ from nesso.data.inference import NessoInferenceDataModule
 from nesso.data.types import Manifest, Record
 from nesso.data.writer import NessoWriter
 from nesso.data.yaml_input import parse_yaml, validate_schema
+from nesso.model.layers.triangular_mult import _CUEQUIVARIANCE_AVAILABLE
 from nesso.model.models.nesso1 import Nesso1
 
 from nesso.data.esm import (
@@ -474,6 +475,11 @@ def predict(
     seed: int,
 ) -> None:
     """Run predictions using Nesso."""
+    if fast_trunk == "bf16" and (no_kernels or not _CUEQUIVARIANCE_AVAILABLE):
+        raise click.UsageError(
+            "--fast_trunk bf16 needs the cuEquivariance kernels, installed and not "
+            "disabled with --no_kernels"
+        )
     pl.seed_everything(seed, workers=True)
 
     for _, val, default, msg in [
