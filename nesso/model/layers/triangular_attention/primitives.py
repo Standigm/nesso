@@ -349,12 +349,15 @@ class Attention(nn.Module):
 
         if use_kernel_path:
             scale = 1.0 / math.sqrt(self.c_hidden)
-            # Copy the transposed q/k/v here, where torch.compile can fuse the copies;
-            # inside the compile-disabled kernel call they run as slow strided copies.
+            # Under torch.compile, copy the transposed q/k/v here, where the copies
+            # fuse; inside the compile-disabled kernel call they run as slow strided
+            # copies. torch._dynamo's check also exists before torch 2.3.
+            if torch._dynamo.is_compiling():
+                q, k, v = q.contiguous(), k.contiguous(), v.contiguous()
             o = kernel_triangular_attn(
-                q.contiguous(),
-                k.contiguous(),
-                v.contiguous(),
+                q,
+                k,
+                v,
                 tri_bias=tri_bias,
                 mask=mask.bool(),
                 scale=scale,
