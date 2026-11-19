@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import importlib.util
 import math
 from typing import Callable, List, Optional, Tuple
 
@@ -21,13 +20,11 @@ import torch
 from torch import nn
 
 from nesso.model.layers import initialize
+from nesso.model.layers.triangular_mult import _CUEQUIVARIANCE_AVAILABLE
 from nesso.model.layers.triangular_attention.utils import (
     flatten_final_dims,
     permute_final_dims,
 )
-
-
-_CUEQUIVARIANCE_AVAILABLE = importlib.util.find_spec("cuequivariance_torch") is not None
 
 
 class Linear(nn.Linear):

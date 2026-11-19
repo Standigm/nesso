@@ -7,7 +7,11 @@ from torch import Tensor, nn
 
 from nesso.model.layers import initialize as init
 
-_CUEQUIVARIANCE_AVAILABLE = importlib.util.find_spec("cuequivariance_torch") is not None
+# The frontend dispatches to the compiled operators, which ship as a separate package.
+_CUEQUIVARIANCE_AVAILABLE = all(
+    importlib.util.find_spec(name) is not None
+    for name in ("cuequivariance_torch", "cuequivariance_ops_torch")
+)
 
 
 @torch.compiler.disable
