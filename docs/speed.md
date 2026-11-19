@@ -79,14 +79,17 @@ harmless changes move it. The change in Spearman against the measurements, relat
 | `compile` | −0.013 (−0.044, +0.020) | +0.021 (−0.002, +0.047) |
 | `bf16` | −0.014 (−0.061, +0.031) | +0.010 (−0.014, +0.035) |
 
-The pooled 128-value embedding (`include_embedding`) drifts with `compile` as it does with a
-GPU swap on Protein A: median cosine similarity to before 0.999994 against 0.999995, median
-relative L2 distance 0.0044 against 0.0042. With `bf16` they are 0.99989 and 0.019.
+The protein–ligand block of the pair representation drifts with `compile` as it does with a
+GPU swap on Protein A. The block is `z` from the `predictions.safetensors` that `--save_metadata`
+writes, restricted to rows whose `mol_type` is protein and columns whose `mol_type` is ligand, and
+averaged over both token axes, which leaves its 128 channels. Median cosine similarity to before
+is 0.999994 against 0.999995, and median relative L2 distance 0.0044 against 0.0042. With `bf16`
+they are 0.99989 and 0.019.
 
 Reading the tables:
 
-- **Neither level shifts the mean.** The mean Δ stays within 0.012 on both proteins; the one
-  interval that excludes zero is `bf16` on the A2 for Protein A, at +0.012.
+- **Mean shifts are small.** The mean Δ stays within 0.012 on both proteins. `bf16` on the A2
+  shifts Protein A up by +0.012 (+0.001, +0.023), the one interval that excludes zero.
 - **`compile` behaves like a harmless change, with two small exceptions.** On the A100 every
   measure on Protein A matches them, and on Protein B the rank agreement and spread do. The share
   of ligands moving by more than 0.1 on Protein B is 4.3 points above kernels off (+0.3, +8.3).
@@ -100,8 +103,13 @@ Reading the tables:
   Protein A's narrow spread of predictions (0.25) and small against Protein B's (0.88).
 
 `compile` is the default. Use `bf16` when throughput matters more than resolving ligands whose
-predicted affinities lie close together. `--fast_trunk off` reproduces values from before this
-page's changes bit for bit; with `compile` they move as the tables above show.
+predicted affinities lie close together. `--fast_trunk off` turns compilation off. It matches
+values from before this page's changes except where the old evaluation dropout mask drew an exact
+zero, which dropped one row or column of a triangle update. That happened in about 1 % of
+predictions on a GPU and 2 % on a CPU for the 384-residue tutorial protein, and more often for
+larger inputs. On a CPU with `--num_workers 0`, later ligands in a run can differ too: the old
+mask draws advanced the generator that also rotates their input conformers. With `compile` the
+values move as the tables above show.
 
 ## Reproducibility
 

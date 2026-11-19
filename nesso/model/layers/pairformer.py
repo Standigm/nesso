@@ -87,7 +87,7 @@ class PairformerNoSeqLayer(nn.Module):
     def _add_dropped(
         self, z: Tensor, update: Tensor, columnwise: bool = False
     ) -> Tensor:
-        # The eval mask is all ones; skipping its full-size multiply is exact.
+        # Eval applies no dropout, so add the update without drawing a mask.
         if not self.training:
             return z + update
         return (

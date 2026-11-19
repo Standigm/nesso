@@ -40,7 +40,7 @@ nesso predict complex.yaml --out_dir /path/to/output
 | `--refine_protein_tokens_budget` | `256` | Max tokens when refine_protein_inference is on |
 | `--affinity_protein_cutoff` | `15.0` | Distance cutoff (in Å) around the ligand for selecting pocket tokens |
 | `--no_kernels` | off | Disable cuEquivariance GPU kernels (useful for older GPUs or CPU runs) |
-| `--fast_trunk` | `compile` | Speed up the trunk Pairformer. `compile` compiles its layers with `torch.compile` (about 1.3× on an A2, 1.15× on an A100) and is skipped when the cuEquivariance kernels are off; `bf16` also carries the pair representation in bfloat16 (about 1.6× on an A2, 1.2× on an A100) and adds noise that matters when predictions are tightly spread; `off` runs the uncompiled model. The first prediction pays the compile time. See [inference speed](speed.md) |
+| `--fast_trunk` | `compile` | Speed up the trunk Pairformer. `compile` compiles its layers with `torch.compile` and is skipped when the cuEquivariance kernels are off; `bf16` also carries the pair representation in bfloat16, which is faster again and adds noise that matters when predictions are tightly spread; `off` runs the uncompiled model. The first prediction pays the compile time. See [inference speed](speed.md) for speeds and accuracy |
 | `--seed` | 42 | Random seed for reproducible predictions (`pl.seed_everything(seed, workers=True)`). |
 
 ---

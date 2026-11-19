@@ -126,8 +126,8 @@ class Nesso1(LightningModule):
 
         ``nesso predict`` does this by default. Compiling fuses the elementwise work
         between the cuEquivariance kernels. It keeps the pair representation in
-        float32, and predicted affinities then move no more than they move between
-        GPU models. The first prediction pays the compile time.
+        float32; ``docs/speed.md`` measures how far predicted affinities move. The
+        first prediction pays the compile time.
 
         Parameters
         ----------
