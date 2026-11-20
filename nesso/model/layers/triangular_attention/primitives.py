@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import importlib.util
 import math
 from typing import Callable, List, Optional, Tuple
 
@@ -21,13 +20,11 @@ import torch
 from torch import nn
 
 from nesso.model.layers import initialize
+from nesso.model.layers.triangular_mult import _CUEQUIVARIANCE_AVAILABLE
 from nesso.model.layers.triangular_attention.utils import (
     flatten_final_dims,
     permute_final_dims,
 )
-
-
-_CUEQUIVARIANCE_AVAILABLE = importlib.util.find_spec("cuequivariance_torch") is not None
 
 
 class Linear(nn.Linear):
@@ -352,6 +349,11 @@ class Attention(nn.Module):
 
         if use_kernel_path:
             scale = 1.0 / math.sqrt(self.c_hidden)
+            # Under torch.compile, copy the transposed q/k/v here, where the copies
+            # fuse; inside the compile-disabled kernel call they run as slow strided
+            # copies. torch._dynamo's check also exists before torch 2.3.
+            if torch._dynamo.is_compiling():
+                q, k, v = q.contiguous(), k.contiguous(), v.contiguous()
             o = kernel_triangular_attn(
                 q,
                 k,

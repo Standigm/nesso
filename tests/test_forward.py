@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import sys
 import textwrap
 from pathlib import Path
 
+import pytest
 import torch
+from click.testing import CliRunner, Result
 from safetensors.torch import save_file
 
+import nesso.main
 from nesso.data.featurizer import NessoFeaturizer
 from nesso.data.inference import InferenceDataset, inference_collate
-from nesso.main import preprocess_yamls
+from nesso.main import cli, preprocess_yamls
 from nesso.model.models.nesso1 import Nesso1
 
 _PROTEIN = (
@@ -99,3 +104,73 @@ def test_forward_smoke(tmp_path: Path, ccd_pkl_path: Path) -> None:
     out = model.forward(batch, recycling_steps=0)
     assert "pdistogram" in out
     assert "affinity_pred_value" in out
+
+
+def test_fast_trunk_needs_kernels() -> None:
+    model = Nesso1(
+        atom_s=16,
+        atom_z=16,
+        token_s=32,
+        token_z=32,
+        atom_feature_dim=387,
+        embedder_args={"atom_encoder_depth": 1, "atom_encoder_heads": 2},
+        pairformer_model_args={"num_blocks": 1},
+        esm_module_args={"esm_embed_dim": 1280},
+        use_kernels=False,
+    )
+    assert not model.kernels_active
+    with pytest.raises(ValueError, match="cuEquivariance"):
+        model.enable_fast_trunk()
+
+
+def _predict_with_local_checkpoint(
+    tmp_path: Path, checkpoint_uses_kernels: bool, *args: str
+) -> tuple[Result, Path]:
+    """Run ``nesso predict`` on a weightless local checkpoint, without downloads."""
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+    (checkpoint / "hparams.json").write_text(
+        json.dumps({"use_kernels": checkpoint_uses_kernels})
+    )
+    ccd = tmp_path / "ccd.pkl"
+    ccd.touch()
+    yaml_path = tmp_path / "example.yaml"
+    yaml_path.write_text(_GOOD_YAML)
+    out_dir = tmp_path / "out"
+    result = CliRunner().invoke(
+        cli,
+        ["predict", str(yaml_path), "--out_dir", str(out_dir)]
+        + ["--checkpoint", str(checkpoint), "--ccd", str(ccd), *args],
+    )
+    return result, out_dir
+
+
+@pytest.mark.parametrize(
+    ("checkpoint_uses_kernels", "args"), [(True, ["--no_kernels"]), (False, [])]
+)
+def test_bf16_trunk_without_kernels_is_a_usage_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    checkpoint_uses_kernels: bool,
+    args: list[str],
+) -> None:
+    monkeypatch.setattr(nesso.main, "_CUEQUIVARIANCE_AVAILABLE", True)
+    result, out_dir = _predict_with_local_checkpoint(
+        tmp_path, checkpoint_uses_kernels, "--fast_trunk", "bf16", *args
+    )
+    assert result.exit_code == 2, result.output
+    assert "needs the cuEquivariance kernels" in result.output
+    assert not out_dir.exists()
+
+
+@pytest.mark.parametrize("checkpoint_uses_kernels", [True, False])
+def test_broken_cuequivariance_install_stops_kernel_checkpoints_early(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, checkpoint_uses_kernels: bool
+) -> None:
+    monkeypatch.setattr(nesso.main, "_CUEQUIVARIANCE_AVAILABLE", True)
+    monkeypatch.setitem(sys.modules, "cuequivariance_ops_torch", None)
+    result, out_dir = _predict_with_local_checkpoint(tmp_path, checkpoint_uses_kernels)
+    assert result.exit_code == 1, result.output
+    import_error = "cuEquivariance is installed but does not import" in result.output
+    assert import_error == checkpoint_uses_kernels
+    assert out_dir.exists() != checkpoint_uses_kernels

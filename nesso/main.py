@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
+import json
 import os
 import sys
 import warnings
@@ -25,6 +27,10 @@ from nesso.data.inference import NessoInferenceDataModule
 from nesso.data.types import Manifest, Record
 from nesso.data.writer import NessoWriter
 from nesso.data.yaml_input import parse_yaml, validate_schema
+from nesso.model.layers.triangular_mult import (
+    _CUEQUIVARIANCE_AVAILABLE,
+    _CUEQUIVARIANCE_PACKAGES,
+)
 from nesso.model.models.nesso1 import Nesso1
 
 from nesso.data.esm import (
@@ -436,6 +442,15 @@ def cli() -> None:
     help="Whether to disable cuEquivariance kernels.",
 )
 @click.option(
+    "--fast_trunk",
+    type=click.Choice(["off", "compile", "bf16"]),
+    default="compile",
+    help="Speed up the trunk: 'compile' (default) compiles its layers, and is skipped "
+    "without the cuEquivariance kernels; 'bf16' also carries the pair representation "
+    "in bfloat16, which is faster again but narrows the spread of predicted "
+    "affinities; 'off' runs the uncompiled model.",
+)
+@click.option(
     "--seed",
     type=int,
     default=42,
@@ -461,6 +476,7 @@ def predict(
     refine_protein_tokens_budget: int,
     affinity_protein_cutoff: float,
     no_kernels: bool,
+    fast_trunk: str,
     seed: int,
 ) -> None:
     """Run predictions using Nesso."""
@@ -507,9 +523,31 @@ def predict(
             cache, checkpoint=checkpoint, ccd=ccd, revision=revision
         )
         yaml_paths = check_inputs(data)
+        hparams = json.loads((checkpoint_path / MODEL_HPARAMS_NAME).read_text())
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
+    kernels = (
+        not no_kernels
+        and hparams.get("use_kernels", False)
+        and _CUEQUIVARIANCE_AVAILABLE
+    )
+    if kernels:
+        # Found but not importable is a broken installation, not an absent one.
+        try:
+            for name in _CUEQUIVARIANCE_PACKAGES:
+                importlib.import_module(name)
+        except ImportError as e:
+            raise click.ClickException(
+                f"cuEquivariance is installed but does not import ({e}); "
+                "repair it or pass --no_kernels"
+            ) from e
+    if fast_trunk == "bf16" and not kernels:
+        raise click.UsageError(
+            "--fast_trunk bf16 needs the cuEquivariance kernels: installed, enabled "
+            "by the checkpoint and not disabled with --no_kernels"
+        )
 
     paths = resolve_paths(out_dir)
 
@@ -600,6 +638,10 @@ def predict(
     # 6. Apply no_kernels if requested
     if no_kernels:
         model_module.use_kernels = False
+    if fast_trunk == "compile" and not model_module.kernels_active:
+        fast_trunk = "off"  # the default level steps aside; 'bf16' still raises
+    if fast_trunk != "off":
+        model_module.enable_fast_trunk(bf16=fast_trunk == "bf16")
 
     model_module.predict_args.update(
         {

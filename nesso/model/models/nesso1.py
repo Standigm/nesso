@@ -1,5 +1,6 @@
 """Nesso1: fast binding affinity model — inference only."""
 
+import contextlib
 import gc
 import json
 from pathlib import Path
@@ -22,6 +23,7 @@ from nesso.model.inference.distogram import (
 from nesso.model.modules.affinity import AffinityModule
 from nesso.model.modules.encoders import RelativePositionEncoder
 from nesso.model.layers.pairformer import PairformerNoSeqModule
+from nesso.model.layers.triangular_mult import _CUEQUIVARIANCE_AVAILABLE
 from nesso.model.modules.esm_module import ESMModule
 from nesso.model.modules.trunk import InputEmbedder
 
@@ -97,6 +99,7 @@ class Nesso1(LightningModule):
         self.pairformer_module = PairformerNoSeqModule(
             token_z=token_z, **pairformer_model_args
         )
+        self.bf16_trunk = False
 
         # Distogram head (kept for pocket masks and entropy; no loss at inference)
         self.num_dist_bins = num_dist_bins
@@ -112,6 +115,39 @@ class Nesso1(LightningModule):
                 token_z=token_z,
                 **(affinity_model_args2 or affinity_model_args or {}),
             )
+
+    @property
+    def kernels_active(self) -> bool:
+        """Whether the cuEquivariance kernels are switched on and installed."""
+        return self.use_kernels and _CUEQUIVARIANCE_AVAILABLE
+
+    def enable_fast_trunk(self, bf16: bool = False) -> None:
+        """Compile the trunk Pairformer's layers, for faster inference.
+
+        ``nesso predict`` does this by default. Compiling fuses the elementwise work
+        between the cuEquivariance kernels. It keeps the pair representation in
+        float32; ``docs/speed.md`` measures how far predicted affinities move. The
+        first prediction pays the compile time.
+
+        Parameters
+        ----------
+        bf16 : bool, default False
+            Also carry the pair representation in bfloat16. On a bandwidth-limited
+            GPU this roughly doubles the speedup, and it narrows the spread of
+            predicted affinities by a few percent, so ligands rank slightly
+            differently. Leave it off unless throughput matters more than that.
+
+        Raises
+        ------
+        ValueError
+            If the cuEquivariance kernels are off or not installed: the compiled
+            PyTorch fallback fails on dynamic shapes.
+        """
+        if not self.kernels_active:
+            raise ValueError("The fast trunk needs the cuEquivariance kernels")
+        self.bf16_trunk = bf16
+        for layer in self.pairformer_module.layers:
+            layer.compile(dynamic=True)
 
     def get_pocket_mask(
         self, z_exp: Tensor, feats: dict[str, Any], cutoff: float = 15.0
@@ -226,11 +262,19 @@ class Nesso1(LightningModule):
                 s_inputs=s_inputs,
                 s_esm=s_esm,
                 pair_mask=pair_mask,
-                use_kernels=self.use_kernels,
+                use_kernels=self.kernels_active,
             )
-            z = self.pairformer_module(
-                z, pair_mask=pair_mask, use_kernels=self.use_kernels
-            )
+            # The bfloat16 trunk needs bf16 autocast, whatever precision the caller uses.
+            with (
+                torch.autocast("cuda", dtype=torch.bfloat16)
+                if self.bf16_trunk
+                else contextlib.nullcontext()
+            ):
+                z = self.pairformer_module(
+                    z.bfloat16() if self.bf16_trunk else z,
+                    pair_mask=pair_mask,
+                    use_kernels=self.kernels_active,
+                ).float()
 
             if refine_pocket and i == 0:
                 keep_t, pdistogram_full = self.pocket_crop(z, feats=feats)
@@ -309,7 +353,7 @@ class Nesso1(LightningModule):
                     z=z_aff.detach(),
                     pdistogram=pdistogram_aff.detach(),
                     feats=feats_aff,
-                    use_kernels=self.use_kernels,
+                    use_kernels=self.kernels_active,
                 )
             dict_out.update(dict_out_affinity)
 
@@ -319,7 +363,7 @@ class Nesso1(LightningModule):
                     z=z_aff.detach(),
                     pdistogram=pdistogram_aff.detach(),
                     feats=feats_aff,
-                    use_kernels=self.use_kernels,
+                    use_kernels=self.kernels_active,
                 )
             dict_out["affinity_pred_value1"] = dict_out["affinity_pred_value"]
             dict_out["affinity_pred_value2"] = dict_out_affinity2["affinity_pred_value"]
