@@ -480,11 +480,6 @@ def predict(
     seed: int,
 ) -> None:
     """Run predictions using Nesso."""
-    if fast_trunk == "bf16" and (no_kernels or not _CUEQUIVARIANCE_AVAILABLE):
-        raise click.UsageError(
-            "--fast_trunk bf16 needs the cuEquivariance kernels, installed and not "
-            "disabled with --no_kernels"
-        )
     pl.seed_everything(seed, workers=True)
 
     for _, val, default, msg in [
@@ -533,11 +528,12 @@ def predict(
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
-    if (
+    kernels = (
         not no_kernels
         and hparams.get("use_kernels", False)
         and _CUEQUIVARIANCE_AVAILABLE
-    ):
+    )
+    if kernels:
         # Found but not importable is a broken installation, not an absent one.
         try:
             for name in _CUEQUIVARIANCE_PACKAGES:
@@ -547,6 +543,11 @@ def predict(
                 f"cuEquivariance is installed but does not import ({e}); "
                 "repair it or pass --no_kernels"
             ) from e
+    if fast_trunk == "bf16" and not kernels:
+        raise click.UsageError(
+            "--fast_trunk bf16 needs the cuEquivariance kernels: installed, enabled "
+            "by the checkpoint and not disabled with --no_kernels"
+        )
 
     paths = resolve_paths(out_dir)
 
