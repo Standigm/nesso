@@ -8,9 +8,9 @@ from torch import Tensor, nn
 from nesso.model.layers import initialize as init
 
 # The frontend dispatches to the compiled operators, which ship as a separate package.
+_CUEQUIVARIANCE_PACKAGES = ("cuequivariance_torch", "cuequivariance_ops_torch")
 _CUEQUIVARIANCE_AVAILABLE = all(
-    importlib.util.find_spec(name) is not None
-    for name in ("cuequivariance_torch", "cuequivariance_ops_torch")
+    importlib.util.find_spec(name) is not None for name in _CUEQUIVARIANCE_PACKAGES
 )
 
 

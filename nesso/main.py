@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import os
 import sys
 import warnings
@@ -25,7 +26,10 @@ from nesso.data.inference import NessoInferenceDataModule
 from nesso.data.types import Manifest, Record
 from nesso.data.writer import NessoWriter
 from nesso.data.yaml_input import parse_yaml, validate_schema
-from nesso.model.layers.triangular_mult import _CUEQUIVARIANCE_AVAILABLE
+from nesso.model.layers.triangular_mult import (
+    _CUEQUIVARIANCE_AVAILABLE,
+    _CUEQUIVARIANCE_PACKAGES,
+)
 from nesso.model.models.nesso1 import Nesso1
 
 from nesso.data.esm import (
@@ -475,6 +479,16 @@ def predict(
     seed: int,
 ) -> None:
     """Run predictions using Nesso."""
+    if not no_kernels and _CUEQUIVARIANCE_AVAILABLE:
+        # Found but not importable is a broken installation, not an absent one.
+        try:
+            for name in _CUEQUIVARIANCE_PACKAGES:
+                importlib.import_module(name)
+        except ImportError as e:
+            raise click.ClickException(
+                f"cuEquivariance is installed but does not import ({e}); "
+                "repair it or pass --no_kernels"
+            ) from e
     if fast_trunk == "bf16" and (no_kernels or not _CUEQUIVARIANCE_AVAILABLE):
         raise click.UsageError(
             "--fast_trunk bf16 needs the cuEquivariance kernels, installed and not "
