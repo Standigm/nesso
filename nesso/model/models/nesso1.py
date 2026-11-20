@@ -262,7 +262,7 @@ class Nesso1(LightningModule):
                 s_inputs=s_inputs,
                 s_esm=s_esm,
                 pair_mask=pair_mask,
-                use_kernels=self.use_kernels,
+                use_kernels=self.kernels_active,
             )
             # The bfloat16 trunk needs bf16 autocast, whatever precision the caller uses.
             with (
@@ -273,7 +273,7 @@ class Nesso1(LightningModule):
                 z = self.pairformer_module(
                     z.bfloat16() if self.bf16_trunk else z,
                     pair_mask=pair_mask,
-                    use_kernels=self.use_kernels,
+                    use_kernels=self.kernels_active,
                 ).float()
 
             if refine_pocket and i == 0:
@@ -353,7 +353,7 @@ class Nesso1(LightningModule):
                     z=z_aff.detach(),
                     pdistogram=pdistogram_aff.detach(),
                     feats=feats_aff,
-                    use_kernels=self.use_kernels,
+                    use_kernels=self.kernels_active,
                 )
             dict_out.update(dict_out_affinity)
 
@@ -363,7 +363,7 @@ class Nesso1(LightningModule):
                     z=z_aff.detach(),
                     pdistogram=pdistogram_aff.detach(),
                     feats=feats_aff,
-                    use_kernels=self.use_kernels,
+                    use_kernels=self.kernels_active,
                 )
             dict_out["affinity_pred_value1"] = dict_out["affinity_pred_value"]
             dict_out["affinity_pred_value2"] = dict_out_affinity2["affinity_pred_value"]
