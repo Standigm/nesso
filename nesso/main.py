@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import json
 import os
 import sys
 import warnings
@@ -479,16 +480,6 @@ def predict(
     seed: int,
 ) -> None:
     """Run predictions using Nesso."""
-    if not no_kernels and _CUEQUIVARIANCE_AVAILABLE:
-        # Found but not importable is a broken installation, not an absent one.
-        try:
-            for name in _CUEQUIVARIANCE_PACKAGES:
-                importlib.import_module(name)
-        except ImportError as e:
-            raise click.ClickException(
-                f"cuEquivariance is installed but does not import ({e}); "
-                "repair it or pass --no_kernels"
-            ) from e
     if fast_trunk == "bf16" and (no_kernels or not _CUEQUIVARIANCE_AVAILABLE):
         raise click.UsageError(
             "--fast_trunk bf16 needs the cuEquivariance kernels, installed and not "
@@ -537,9 +528,25 @@ def predict(
             cache, checkpoint=checkpoint, ccd=ccd, revision=revision
         )
         yaml_paths = check_inputs(data)
+        hparams = json.loads((checkpoint_path / MODEL_HPARAMS_NAME).read_text())
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
+    if (
+        not no_kernels
+        and hparams.get("use_kernels", False)
+        and _CUEQUIVARIANCE_AVAILABLE
+    ):
+        # Found but not importable is a broken installation, not an absent one.
+        try:
+            for name in _CUEQUIVARIANCE_PACKAGES:
+                importlib.import_module(name)
+        except ImportError as e:
+            raise click.ClickException(
+                f"cuEquivariance is installed but does not import ({e}); "
+                "repair it or pass --no_kernels"
+            ) from e
 
     paths = resolve_paths(out_dir)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
 import textwrap
 from pathlib import Path
@@ -138,8 +139,9 @@ def test_bf16_trunk_without_kernels_is_a_usage_error(tmp_path: Path) -> None:
     assert not out_dir.exists()
 
 
-def test_broken_cuequivariance_install_stops_before_preprocessing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("checkpoint_uses_kernels", [True, False])
+def test_broken_cuequivariance_install_stops_kernel_checkpoints_early(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, checkpoint_uses_kernels: bool
 ) -> None:
     from click.testing import CliRunner
 
@@ -147,12 +149,22 @@ def test_broken_cuequivariance_install_stops_before_preprocessing(
 
     monkeypatch.setattr(nesso.main, "_CUEQUIVARIANCE_AVAILABLE", True)
     monkeypatch.setitem(sys.modules, "cuequivariance_ops_torch", None)
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+    (checkpoint / "hparams.json").write_text(
+        json.dumps({"use_kernels": checkpoint_uses_kernels})
+    )
+    ccd = tmp_path / "ccd.pkl"
+    ccd.touch()
     yaml_path = tmp_path / "example.yaml"
     yaml_path.write_text(_GOOD_YAML)
     out_dir = tmp_path / "out"
     result = CliRunner().invoke(
-        nesso.main.cli, ["predict", str(yaml_path), "--out_dir", str(out_dir)]
+        nesso.main.cli,
+        ["predict", str(yaml_path), "--out_dir", str(out_dir)]
+        + ["--checkpoint", str(checkpoint), "--ccd", str(ccd)],
     )
     assert result.exit_code == 1, result.output
-    assert "cuEquivariance is installed but does not import" in result.output
-    assert not out_dir.exists()
+    import_error = "cuEquivariance is installed but does not import" in result.output
+    assert import_error == checkpoint_uses_kernels
+    assert out_dir.exists() != checkpoint_uses_kernels
